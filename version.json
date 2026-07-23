@@ -1,0 +1,45 @@
+{
+    "app": "RemixZ Cleaner X",
+    "version": "3.5.17",
+    "build": "2026-07-23",
+    "channel": "stable",
+    "package_type": "soft_bootstrap",
+    "updates_enabled": true,
+    "repo": "SMPROJECT115/remixz",
+    "repo_url": "https://github.com/SMPROJECT115/remixz",
+    "repos": [
+        "SMPROJECT115/remixz",
+        "SMPROJECT115/newrepo",
+        "SMPROJECT115/3.15",
+        "SMPROJECT115/error",
+        "alikhan847547-sketch/remixz"
+    ],
+    "update_branch": "main",
+    "ui": "fluent+customtkinter",
+    "architecture": "launcher.exe (PyInstaller) + RemixZ_Cleaner_X_App.py on disk",
+    "notes": "v3.5.17 SOFT. Scripts+lib+vendor (sin EXE). Tras reinicio FULL reemplaza launcher EXE desde newrepo.",
+    "last_update": "2026-07-23 16:38:26",
+    "features": [
+        "launcher_exe_replace",
+        "disk_app_py",
+        "force_load_py",
+        "customtkinter",
+        "djtools",
+        "deps_before_load",
+        "lib_vendor_full",
+        "winerror32_fix"
+    ],
+    "dependencies": [
+        "mutagen",
+        "colorama",
+        "psutil",
+        "customtkinter",
+        "darkdetect",
+        "packaging",
+        "easygui"
+    ],
+    "package_includes_exe": false,
+    "package_includes_launcher_exe": true,
+    "launcher_compiled": true,
+    "replaces_old_frozen_exe": true
+}

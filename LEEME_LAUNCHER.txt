@@ -1,0 +1,14 @@
+RemixZ Cleaner X v3.5.15 — ARQUITECTURA LAUNCHER
+================================================
+launcher.py  → se compila a RemixZ_Cleaner_X.exe
+RemixZ_Cleaner_X_App.py → lógica GUI (se actualiza por GitHub en DISCO)
+
+El .exe SOLO arranca el App.py del disco. Los updates sobrescriben .py
+y al reiniciar el mismo .exe ya carga la versión nueva.
+
+Abrir:
+  RemixZ_Cleaner_X.exe  (launcher)
+  o ejecutar_Cleaner_X.bat / pythonw launcher.py
+
+Compilar launcher:
+  compilar_cleaner.bat  (requiere pyinstaller)
