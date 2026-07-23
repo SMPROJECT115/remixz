@@ -61,18 +61,38 @@ def _bootstrap_sys_path() -> None:
     """
     Añade lib/ y bundle del EXE para mutagen/colorama/psutil.
     NO pone vendor/ en sys.path (solo hay .whl).
-    NO elimina rutas del intérprete (stdlib: platform, etc.).
+    NUNCA hace sys.path[:] = ... (eso rompe json/stdlib del frozen).
 
     PRIORIDAD (crítica para updates del EXE):
       1) APP_DIR  — .py actualizados en disco por el updater
       2) lib/
-      3) _internal / _MEIPASS — bundle PyInstaller (fallback)
-    Antes _MEIPASS iba primero y el EXE IGNORABA los .py del update.
+      3) stdlib/ local (json inyectado si el EXE era mínimo)
+      4) _internal / _MEIPASS / base_library.zip — bundle PyInstaller
     """
-    ordered = [APP_DIR, LIB_DIR]
+    # Guardar rutas críticas del frozen ANTES de reordenar
+    preserve: list[str] = []
+    for p in list(sys.path):
+        try:
+            pl = str(p).lower().replace("\\", "/")
+            if (
+                "base_library.zip" in pl
+                or pl.endswith("/_internal")
+                or "/_internal/" in pl
+                or "pyimod" in pl
+            ):
+                preserve.append(p)
+        except Exception:
+            pass
+
+    ordered = [APP_DIR, LIB_DIR, APP_DIR / "stdlib", APP_DIR / "_internal" / "stdlib"]
     if getattr(sys, "frozen", False):
         ordered.append(APP_DIR / "_internal")
         ordered.append(Path(getattr(sys, "_MEIPASS", _MEIPASS)))
+        try:
+            ordered.append(Path(getattr(sys, "_MEIPASS", _MEIPASS)) / "base_library.zip")
+            ordered.append(APP_DIR / "_internal" / "base_library.zip")
+        except Exception:
+            pass
     for p in reversed(ordered):
         try:
             if not p or not Path(p).exists():
@@ -88,6 +108,11 @@ def _bootstrap_sys_path() -> None:
             sys.path.insert(0, s)
         except Exception:
             pass
+
+    # Reponer bundle paths al final si se perdieron
+    for s in preserve:
+        if s not in sys.path:
+            sys.path.append(s)
 
 
 def _force_load_disk_module(modname: str, filename: str):
@@ -116,8 +141,17 @@ def _force_load_disk_module(modname: str, filename: str):
         if spec is None or spec.loader is None:
             return None
         mod = importlib.util.module_from_spec(spec)
+        # Registrar ANTES de exec (dataclasses / imports circulares)
         sys.modules[modname] = mod
-        spec.loader.exec_module(mod)
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            # No dejar módulo vacío en sys.modules (causa: no attribute load_local_version)
+            sys.modules.pop(modname, None)
+            for k in list(sys.modules):
+                if k.startswith(modname + "."):
+                    sys.modules.pop(k, None)
+            raise
         return mod
     except Exception:
         return None
@@ -125,26 +159,30 @@ def _force_load_disk_module(modname: str, filename: str):
 
 _bootstrap_sys_path()
 
-# Si hay .py actualizados junto al EXE, USARLOS (no el código frozen viejo)
-if getattr(sys, "frozen", False):
-    _force_load_disk_module("fluent_ui", "fluent_ui.py")
-    _force_load_disk_module("remixz_update", "remixz_update.py")
-    _force_load_disk_module("remixz_djtools", "remixz_djtools.py")
-
 
 def _ensure_stdlib() -> None:
-    """Garantiza que 'platform' y stdlib básica se puedan importar."""
+    """Garantiza json / platform y stdlib básica (crítico en EXE launcher)."""
     _bootstrap_sys_path()
-    try:
-        import platform as _pl  # noqa: F401
+    needed = ("json", "platform", "ssl", "zipfile")
+    missing = []
+    for name in needed:
+        try:
+            importlib.import_module(name)
+        except Exception:
+            missing.append(name)
+    if not missing:
         return
-    except Exception:
-        pass
-    # Restaurar MEIPASS / prefix del intérprete
+    # Restaurar MEIPASS / prefix / stdlib en disco
     extras = []
     if getattr(sys, "frozen", False):
         extras.append(str(Path(getattr(sys, "_MEIPASS", APP_DIR))))
         extras.append(str(APP_DIR / "_internal"))
+        extras.append(str(APP_DIR / "stdlib"))
+        extras.append(str(APP_DIR / "_internal" / "stdlib"))
+        try:
+            extras.append(str(Path(getattr(sys, "_MEIPASS", APP_DIR)) / "base_library.zip"))
+        except Exception:
+            pass
     for attr in ("base_prefix", "prefix", "exec_prefix"):
         root = getattr(sys, attr, None)
         if root:
@@ -156,7 +194,25 @@ def _ensure_stdlib() -> None:
                 sys.path.append(s)
         except Exception:
             pass
-    import platform as _pl  # noqa: F401
+    for name in needed:
+        importlib.import_module(name)
+
+
+# Stdlib ANTES de forzar módulos del disco (json lo necesita remixz_update)
+try:
+    _ensure_stdlib()
+except Exception:
+    pass
+
+# Si hay .py actualizados junto al EXE, USARLOS (no el código frozen viejo)
+if getattr(sys, "frozen", False):
+    try:
+        _ensure_stdlib()
+    except Exception:
+        pass
+    _force_load_disk_module("fluent_ui", "fluent_ui.py")
+    _force_load_disk_module("remixz_update", "remixz_update.py")
+    _force_load_disk_module("remixz_djtools", "remixz_djtools.py")
 
 # ---------------------------------------------------------------------------
 # Dependencias requeridas por Cleaner X (import_name, pip_name, descripción)
@@ -503,12 +559,17 @@ def ensure_packages(status_cb=None, progress_cb=None) -> dict:
 
 # ---------------------------------------------------------------------------
 # UI imports (tkinter must exist; fluent_ui is local)
+# Submódulos con import explícito (más robusto en EXE/launcher frozen)
 # ---------------------------------------------------------------------------
 import tkinter as tk
-from tkinter import filedialog, ttk, scrolledtext
+import tkinter.filedialog as filedialog
+import tkinter.ttk as ttk
+import tkinter.scrolledtext as scrolledtext
 
 from fluent_ui import (
     FLUENT,
+    FLUENT_DARK,
+    FLUENT_LIGHT,
     FONTS,
     FluentUI,
     LoadingSplash,
@@ -516,14 +577,26 @@ from fluent_ui import (
     apply_ctk_theme,
     apply_fluent_style,
     ctk_available,
+    detect_system_appearance,
     ensure_ctk_loaded,
     fade_in_window,
     font_or_fallback,
+    get_active_palette,
+    refresh_fluent_from_system,
 )
 
-# CustomTkinter con la misma paleta (si está instalado); si no, tk puro
+# Tema adaptable al SO (claro/oscuro) + estilo Mac; CTk en modo System
 try:
-    apply_ctk_theme(dict(FLUENT))
+    refresh_fluent_from_system()
+    apply_ctk_theme(appearance="System")
+except Exception:
+    try:
+        apply_ctk_theme(dict(FLUENT), appearance="System")
+    except Exception:
+        pass
+# Reafirmar stdlib (json) por si bootstrap/CTk tocaron sys.path
+try:
+    _ensure_stdlib()
 except Exception:
     pass
 import remixz_update
@@ -534,6 +607,7 @@ VERSION = str(_local_ver.get("version", "3.2.0"))
 APP_TITLE = f"RemixZ Cleaner X v{VERSION}"
 REPO_URL = str(_local_ver.get("repo_url") or "https://github.com/alikhan847547-sketch/remixz")
 
+# Colores activos según tema del sistema (Mac light/dark)
 BG = FLUENT["bg"]
 BG_INPUT = FLUENT["input"]
 FG = FLUENT["fg"]
@@ -542,6 +616,7 @@ ACCENT = FLUENT["accent"]
 ACCENT_CYAN = FLUENT["accent_light"]
 ACCENT_GREEN = FLUENT["success"]
 ACCENT_ORANGE = FLUENT["orange"]
+_THEME_MODE = FLUENT.get("mode") or detect_system_appearance()
 
 # Motor Cleaner (se carga tras deps)
 cleaner = None
@@ -2969,6 +3044,15 @@ def main():
                     status_cb=_pend_status,
                 )
                 _log_boot(f"pending_on_boot: ok={ok_p} {msg_p}")
+                try:
+                    ok_l, msg_l = remixz_update.ensure_launcher_exe_on_boot(
+                        APP_DIR,
+                        progress_cb=_pend_progress,
+                        status_cb=_pend_status,
+                    )
+                    _log_boot(f"launcher_on_boot: ok={ok_l} {msg_l}")
+                except Exception as exc_l:
+                    _log_boot(f"launcher_on_boot FAIL: {exc_l}")
             except Exception as exc:
                 _log_boot(f"pending_on_boot FAIL: {exc}")
 

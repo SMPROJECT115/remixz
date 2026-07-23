@@ -632,6 +632,92 @@ def has_pending_update(app_dir: Path | None = None) -> bool:
     return False
 
 
+def is_old_frozen_exe(exe: Path) -> bool:
+    """
+    EXE frozen antiguo (app completa ~2.8MB+) vs launcher nuevo (~1.6MB).
+    El viejo IGNORA App.py del disco → UI desactualizada.
+    """
+    try:
+        if not exe.is_file():
+            return False
+        size = exe.stat().st_size
+        # launcher compilado ~1.6–2.0 MB; frozen full app ~2.5–3.5 MB
+        if size >= 2_200_000:
+            return True
+        flag = exe.parent / "launcher_mode.flag"
+        if flag.is_file():
+            return False
+        return False
+    except OSError:
+        return False
+
+
+def ensure_launcher_exe_on_boot(
+    app_dir: Path | None = None,
+    progress_cb: Callable | None = None,
+    status_cb: Callable | None = None,
+) -> tuple[bool, str]:
+    """
+    Solución definitiva si el cliente abrió el EXE frozen viejo alguna vez:
+      - Si hay launcher en _pending_update, copiarlo sobre RemixZ_Cleaner_X.exe
+        (si no está bloqueado; si está, deja finish script).
+      - Marca launcher_mode.flag
+    Se llama desde App.py al arrancar (vía VBS/pythonw o launcher nuevo).
+    """
+    base = Path(app_dir) if app_dir is not None else _app_dir()
+    exe = base / "RemixZ_Cleaner_X.exe"
+    pending = base / PENDING_DIR_NAME
+    pending_exe = pending / "RemixZ_Cleaner_X.exe"
+    flag = base / "launcher_mode.flag"
+
+    def report(msg: str):
+        if status_cb:
+            try:
+                status_cb(msg)
+            except Exception:
+                pass
+
+    # Ya es launcher y hay flag
+    if exe.is_file() and not is_old_frozen_exe(exe) and flag.is_file():
+        return True, "Launcher OK (modo disco)."
+
+    if not pending_exe.is_file():
+        if is_old_frozen_exe(exe):
+            return False, (
+                "EXE antiguo (frozen). Ejecuta una vez: ejecutar_Cleaner_X.vbs "
+                "o actualizar_forzado.bat (reemplaza launcher)."
+            )
+        return True, "Sin pending de launcher."
+
+    report("Instalando launcher nuevo (interfaz en disco)…")
+    try:
+        # Intento en caliente (si no hay EXE bloqueado)
+        shutil.copy2(pending_exe, exe)
+        pint = pending / "_internal"
+        if pint.is_dir():
+            dest_int = base / "_internal"
+            dest_int.mkdir(parents=True, exist_ok=True)
+            for root, _dirs, files in os.walk(pint):
+                rel = Path(root).relative_to(pint)
+                target_dir = dest_int / rel
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for fn in files:
+                    shutil.copy2(Path(root) / fn, target_dir / fn)
+        flag.write_text("disk-app-launcher\n", encoding="utf-8")
+        return True, "Launcher reemplazado en caliente."
+    except OSError:
+        # Bloqueado → finish script para al salir
+        try:
+            _write_finish_script(
+                base,
+                pending,
+                restart_cmd=[str(exe if exe.is_file() else base / "ejecutar_Cleaner_X.vbs")],
+            )
+        except Exception:
+            pass
+        return False, "Launcher pendiente al reiniciar (EXE en uso)."
+
+
 def apply_pending_on_boot(
     app_dir: Path | None = None,
     progress_cb: Callable | None = None,
@@ -648,6 +734,11 @@ def apply_pending_on_boot(
     Returns: (hubo_trabajo_o_ok, mensaje)
     """
     base = Path(app_dir) if app_dir is not None else _app_dir()
+    # Siempre intentar fijar launcher nuevo si hay pending
+    try:
+        ensure_launcher_exe_on_boot(base, progress_cb=progress_cb, status_cb=status_cb)
+    except Exception:
+        pass
 
     def report(msg: str, pct: int | None = None):
         if status_cb:

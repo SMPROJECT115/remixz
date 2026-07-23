@@ -1,18 +1,22 @@
-"""Componentes UI estilo Fluent Design (Windows 11) con efectos y transiciones.
+"""Componentes UI estilo macOS (Big Sur / Sonoma) con tema adaptable al sistema.
 
-Mejoras opcionales con CustomTkinter (misma paleta FLUENT):
-  botones redondeados, entries modernos. Si CTk no está, cae a tk puro.
+- Sigue el modo claro/oscuro de Windows (o macOS si corre ahí).
+- Paletas duales: FLUENT_LIGHT / FLUENT_DARK (look Mac: grises suaves, azul sistema).
+- CustomTkinter en modo System + corner radius estilo Mac.
+- Si CTk no está, cae a tk puro con la misma paleta activa.
 EasyGUI no se usa aquí: rompe el diseño unificado.
 Colorama es solo para consola/motor (fuera de este módulo).
 """
 
 from __future__ import annotations
 
+import platform
+import sys
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Literal
 
-# CustomTkinter opcional (mismo diseño dark, widgets redondeados)
+# CustomTkinter opcional (widgets redondeados estilo Mac)
 try:
     import customtkinter as ctk  # type: ignore
 
@@ -22,84 +26,254 @@ except Exception:  # pragma: no cover
     HAS_CTK = False
 
 
-# Paleta profesional (dark SaaS / dashboard)
-FLUENT = {
-    "bg": "#0b0f14",
-    "surface": "#111821",
-    "card": "#151c27",
-    "card_hover": "#1c2533",
-    "input": "#1a2330",
-    "hover": "#243044",
-    "border": "#2a3545",
-    "border_hot": "#3d8bfd",
-    "fg": "#e8eef7",
-    "muted": "#8b9bb0",
-    "accent": "#2f6fed",
-    "accent_light": "#6aa8ff",
-    "accent_hover": "#3d7ff5",
-    "success": "#3ecf8e",
-    "warning": "#f5c542",
-    "error": "#ff6b7a",
-    "subtle": "#1a2330",
-    "btn": "#243044",
-    "blue": "#2f6fed",
-    "green": "#3ecf8e",
-    "cyan": "#5ec8ff",
-    "orange": "#ff8a3d",
-    "header": "#0e141c",
-    "glow": "#4d8dff",
-    "panel": "#121a24",
-    "text_dim": "#6b7c90",
-    "divider": "#1e2836",
+# ---------------------------------------------------------------------------
+# Detección de tema del sistema (Windows AppsUseLightTheme / darkdetect)
+# ---------------------------------------------------------------------------
+
+AppearanceMode = Literal["dark", "light"]
+
+
+def detect_system_appearance() -> AppearanceMode:
+    """
+    Devuelve 'dark' o 'light' según el SO.
+    Windows: AppsUseLightTheme (0 = oscuro). Fallback: darkdetect / por defecto dark.
+    """
+    # 1) darkdetect (si está empaquetado / instalado)
+    try:
+        import darkdetect  # type: ignore
+
+        t = darkdetect.theme()
+        if t:
+            return "dark" if str(t).lower().startswith("dark") else "light"
+    except Exception:
+        pass
+
+    # 2) Windows registry
+    if sys.platform == "win32":
+        try:
+            import winreg  # type: ignore
+
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            )
+            # 0 = dark apps, 1 = light apps
+            val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return "light" if int(val) == 1 else "dark"
+        except Exception:
+            pass
+
+    # 3) macOS (por si se usa en Wine / port)
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+
+            r = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if "Dark" in (r.stdout or ""):
+                return "dark"
+            return "light"
+        except Exception:
+            pass
+
+    return "dark"
+
+
+# Paleta macOS Dark (ventana flotante / card glass-ish)
+FLUENT_DARK = {
+    "bg": "#1c1c1e",          # systemBackground dark
+    "surface": "#2c2c2e",     # secondarySystemBackground
+    "card": "#2c2c2e",
+    "card_hover": "#3a3a3c",
+    "input": "#3a3a3c",
+    "hover": "#48484a",
+    "border": "#38383a",
+    "border_hot": "#0a84ff",
+    "fg": "#f5f5f7",          # label primary
+    "muted": "#98989d",       # secondary label
+    "accent": "#0a84ff",      # systemBlue dark
+    "accent_light": "#64b5ff",
+    "accent_hover": "#409cff",
+    "success": "#30d158",     # systemGreen
+    "warning": "#ffd60a",
+    "error": "#ff453a",
+    "subtle": "#2c2c2e",
+    "btn": "#3a3a3c",
+    "blue": "#0a84ff",
+    "green": "#30d158",
+    "cyan": "#64d2ff",
+    "orange": "#ff9f0a",
+    "header": "#161618",
+    "glow": "#0a84ff",
+    "panel": "#1c1c1e",
+    "text_dim": "#636366",
+    "divider": "#38383a",
+    "mode": "dark",
 }
 
+# Paleta macOS Light (Big Sur / Sonoma)
+FLUENT_LIGHT = {
+    "bg": "#f5f5f7",          # window background light
+    "surface": "#ffffff",
+    "card": "#ffffff",
+    "card_hover": "#f0f0f2",
+    "input": "#e8e8ed",
+    "hover": "#e5e5ea",
+    "border": "#d1d1d6",
+    "border_hot": "#007aff",
+    "fg": "#1d1d1f",          # near-black label
+    "muted": "#6e6e73",
+    "accent": "#007aff",      # systemBlue light
+    "accent_light": "#2997ff",
+    "accent_hover": "#0066d6",
+    "success": "#34c759",
+    "warning": "#ffcc00",
+    "error": "#ff3b30",
+    "subtle": "#f2f2f7",
+    "btn": "#e8e8ed",
+    "blue": "#007aff",
+    "green": "#34c759",
+    "cyan": "#32ade6",
+    "orange": "#ff9500",
+    "header": "#ffffff",
+    "glow": "#007aff",
+    "panel": "#ffffff",
+    "text_dim": "#8e8e93",
+    "divider": "#e5e5ea",
+    "mode": "light",
+}
+
+# Compat: FLUENT = paleta activa (se rellena al detectar SO)
+_APPEARANCE: AppearanceMode = detect_system_appearance()
+FLUENT: dict = dict(FLUENT_DARK if _APPEARANCE == "dark" else FLUENT_LIGHT)
+
 _CTK_THEME_APPLIED = False
+# Radios estilo Mac (CTk)
+MAC_CORNER_RADIUS = 12
+MAC_CORNER_BTN = 10
+MAC_CORNER_ENTRY = 10
 
 
-def apply_ctk_theme(colors: dict | None = None) -> bool:
+def get_active_palette(mode: AppearanceMode | None = None) -> dict:
+    """Paleta light/dark según modo (None = detección actual del SO)."""
+    m = mode or detect_system_appearance()
+    return dict(FLUENT_LIGHT if m == "light" else FLUENT_DARK)
+
+
+def refresh_fluent_from_system() -> dict:
+    """Actualiza FLUENT global según el tema del SO. Devuelve la paleta activa."""
+    global FLUENT, _APPEARANCE
+    _APPEARANCE = detect_system_appearance()
+    FLUENT.clear()
+    FLUENT.update(get_active_palette(_APPEARANCE))
+    return FLUENT
+
+
+def apply_ctk_theme(colors: dict | None = None, *, appearance: str | None = None) -> bool:
     """
-    Configura CustomTkinter en modo dark con la paleta FLUENT.
-    No cambia el layout de la app: solo el look de widgets CTk.
+    Configura CustomTkinter con tema adaptable al sistema + estilo Mac.
+
+    appearance:
+      - None / "System" → sigue Windows/macOS (recomendado)
+      - "Dark" / "Light" → fuerza modo
+    colors: override de paleta (por defecto FLUENT activo).
     """
-    global _CTK_THEME_APPLIED
+    global _CTK_THEME_APPLIED, FLUENT, _APPEARANCE
     if not HAS_CTK or ctk is None:
         return False
-    c = {**FLUENT, **(colors or {})}
+
+    # Resolver modo
+    mode_arg = (appearance or "System").strip().capitalize()
+    if mode_arg not in ("System", "Dark", "Light"):
+        mode_arg = "System"
+
+    if mode_arg == "System":
+        _APPEARANCE = detect_system_appearance()
+    else:
+        _APPEARANCE = "dark" if mode_arg == "Dark" else "light"
+
+    base = get_active_palette(_APPEARANCE)
+    c = {**base, **(colors or {})}
+    # Mantener FLUENT sincronizado para tk puro
+    FLUENT.clear()
+    FLUENT.update(c)
+
     try:
-        ctk.set_appearance_mode("Dark")
-        # Tema base + overrides por widget (fg_color etc. en cada control)
+        # System = CTk escucha cambios del SO; inyectamos ambos lados light/dark
+        ctk.set_appearance_mode("System" if mode_arg == "System" else mode_arg)
         try:
             ctk.set_default_color_theme("blue")
         except Exception:
             pass
-        # Inyectar colores en ThemeManager si está disponible (CTk 5/6)
+        try:
+            ctk.set_widget_scaling(1.0)
+            ctk.set_window_scaling(1.0)
+        except Exception:
+            pass
+
+        light = FLUENT_LIGHT
+        dark = FLUENT_DARK
+        # Si el caller pasó colors, mezclar solo el modo activo
+        if colors:
+            if _APPEARANCE == "light":
+                light = {**FLUENT_LIGHT, **colors}
+            else:
+                dark = {**FLUENT_DARK, **colors}
+
+        def pair(key: str, fallback: str = "#888888") -> list:
+            return [light.get(key, fallback), dark.get(key, fallback)]
+
         try:
             theme = ctk.ThemeManager.theme
+            # CTk usa [light, dark] en cada color
             if "CTk" in theme:
-                theme["CTk"]["fg_color"] = [c["bg"], c["bg"]]
+                theme["CTk"]["fg_color"] = pair("bg")
             if "CTkFrame" in theme:
-                theme["CTkFrame"]["fg_color"] = [c["card"], c["card"]]
-                theme["CTkFrame"]["top_fg_color"] = [c["surface"], c["surface"]]
-                theme["CTkFrame"]["border_color"] = [c["border"], c["border"]]
+                theme["CTkFrame"]["fg_color"] = pair("card")
+                theme["CTkFrame"]["top_fg_color"] = pair("surface")
+                theme["CTkFrame"]["border_color"] = pair("border")
+                theme["CTkFrame"]["corner_radius"] = MAC_CORNER_RADIUS
             if "CTkButton" in theme:
-                theme["CTkButton"]["fg_color"] = [c["accent"], c["accent"]]
-                theme["CTkButton"]["hover_color"] = [c["accent_hover"], c["accent_hover"]]
+                theme["CTkButton"]["fg_color"] = pair("accent")
+                theme["CTkButton"]["hover_color"] = pair("accent_hover")
                 theme["CTkButton"]["text_color"] = ["#ffffff", "#ffffff"]
-                theme["CTkButton"]["border_color"] = [c["border"], c["border"]]
+                theme["CTkButton"]["border_color"] = pair("border")
+                theme["CTkButton"]["corner_radius"] = MAC_CORNER_BTN
             if "CTkEntry" in theme:
-                theme["CTkEntry"]["fg_color"] = [c["input"], c["input"]]
-                theme["CTkEntry"]["border_color"] = [c["border"], c["border"]]
-                theme["CTkEntry"]["text_color"] = [c["fg"], c["fg"]]
-                theme["CTkEntry"]["placeholder_text_color"] = [c["muted"], c["muted"]]
+                theme["CTkEntry"]["fg_color"] = pair("input")
+                theme["CTkEntry"]["border_color"] = pair("border")
+                theme["CTkEntry"]["text_color"] = pair("fg")
+                theme["CTkEntry"]["placeholder_text_color"] = pair("muted")
+                theme["CTkEntry"]["corner_radius"] = MAC_CORNER_ENTRY
             if "CTkProgressBar" in theme:
-                theme["CTkProgressBar"]["fg_color"] = [c["input"], c["input"]]
-                theme["CTkProgressBar"]["progress_color"] = [c["accent"], c["cyan"]]
+                theme["CTkProgressBar"]["fg_color"] = pair("input")
+                theme["CTkProgressBar"]["progress_color"] = [
+                    light.get("accent", "#007aff"),
+                    dark.get("cyan", "#64d2ff"),
+                ]
+                theme["CTkProgressBar"]["corner_radius"] = 999
             if "CTkLabel" in theme:
-                theme["CTkLabel"]["text_color"] = [c["fg"], c["fg"]]
+                theme["CTkLabel"]["text_color"] = pair("fg")
             if "CTkTextbox" in theme:
-                theme["CTkTextbox"]["fg_color"] = [c["input"], c["input"]]
-                theme["CTkTextbox"]["text_color"] = [c["fg"], c["fg"]]
-                theme["CTkTextbox"]["border_color"] = [c["border"], c["border"]]
+                theme["CTkTextbox"]["fg_color"] = pair("input")
+                theme["CTkTextbox"]["text_color"] = pair("fg")
+                theme["CTkTextbox"]["border_color"] = pair("border")
+                theme["CTkTextbox"]["corner_radius"] = MAC_CORNER_RADIUS
+            if "CTkOptionMenu" in theme:
+                theme["CTkOptionMenu"]["fg_color"] = pair("input")
+                theme["CTkOptionMenu"]["button_color"] = pair("accent")
+                theme["CTkOptionMenu"]["button_hover_color"] = pair("accent_hover")
+                theme["CTkOptionMenu"]["text_color"] = pair("fg")
+                theme["CTkOptionMenu"]["corner_radius"] = MAC_CORNER_BTN
+            if "CTkSwitch" in theme:
+                theme["CTkSwitch"]["progress_color"] = pair("accent")
+                theme["CTkSwitch"]["button_color"] = ["#ffffff", "#f5f5f7"]
+                theme["CTkSwitch"]["button_hover_color"] = ["#f0f0f0", "#e5e5ea"]
         except Exception:
             pass
         _CTK_THEME_APPLIED = True
@@ -244,14 +418,19 @@ def apply_fluent_style(root: tk.Misc) -> ttk.Style:
         style.theme_use("clam")
     except tk.TclError:
         pass
+    # Sincronizar paleta con el SO antes de pintar ttk
+    try:
+        refresh_fluent_from_system()
+    except Exception:
+        pass
     c = FLUENT
-    style.configure("TNotebook", background=c["bg"], borderwidth=0, tabmargins=[6, 10, 6, 0])
+    style.configure("TNotebook", background=c["bg"], borderwidth=0, tabmargins=[8, 12, 8, 0])
     style.configure(
         "TNotebook.Tab",
         background=c["card"],
         foreground=c["muted"],
-        padding=[22, 12],
-        font=("Segoe UI Semibold", 10),
+        padding=[20, 11],
+        font=(_UI_SEMI, 10),
         borderwidth=0,
         focuscolor=c["bg"],
     )
@@ -279,33 +458,66 @@ def apply_fluent_style(root: tk.Misc) -> ttk.Style:
     return style
 
 
-# Tipografías unificadas (Windows: Segoe UI / Cascadia)
+# Tipografías estilo Mac: SF Pro → Segoe UI Variable → Segoe UI (Windows)
+# En Windows no hay SF Pro por defecto; Segoe UI Variable es el más cercano.
+def _pick_ui_font_family() -> str:
+    """Elige la mejor familia UI disponible (Mac-like en Windows)."""
+    candidates = (
+        "SF Pro Display",
+        "SF Pro Text",
+        "SF Pro",
+        ".AppleSystemUIFont",
+        "Segoe UI Variable Display",
+        "Segoe UI Variable Text",
+        "Segoe UI Variable",
+        "Segoe UI",
+        "Helvetica Neue",
+        "Arial",
+    )
+    # Sin Tk root aún: preferir Segoe UI Variable / Segoe UI en Windows
+    if sys.platform == "win32":
+        return "Segoe UI"
+    if sys.platform == "darwin":
+        return "SF Pro Text"
+    return "Helvetica Neue"
+
+
+_UI_FAMILY = _pick_ui_font_family()
+_UI_SEMI = f"{_UI_FAMILY} Semibold" if "Segoe" in _UI_FAMILY else _UI_FAMILY
+_UI_BOLD = f"{_UI_FAMILY} Black" if "Segoe" in _UI_FAMILY else _UI_FAMILY
+
+# En Windows, Semibold/Black existen como "Segoe UI Semibold" / "Segoe UI Black"
+if sys.platform == "win32":
+    _UI_FAMILY = "Segoe UI"
+    _UI_SEMI = "Segoe UI Semibold"
+    _UI_BOLD = "Segoe UI Black"
+
 FONTS = {
-    "title": ("Segoe UI Black", 22),
-    "title_sm": ("Segoe UI Black", 16),
-    "heading": ("Segoe UI Semibold", 13),
-    "subhead": ("Segoe UI Semibold", 11),
-    "body": ("Segoe UI", 10),
-    "body_lg": ("Segoe UI", 11),
-    "caption": ("Segoe UI", 9),
-    "micro": ("Segoe UI", 8),
+    "title": (_UI_BOLD, 22),
+    "title_sm": (_UI_BOLD, 16),
+    "heading": (_UI_SEMI, 13),
+    "subhead": (_UI_SEMI, 11),
+    "body": (_UI_FAMILY, 10),
+    "body_lg": (_UI_FAMILY, 11),
+    "caption": (_UI_FAMILY, 9),
+    "micro": (_UI_FAMILY, 8),
     "mono": ("Cascadia Mono", 10),
     "mono_sm": ("Cascadia Mono", 9),
-    "btn": ("Segoe UI Semibold", 11),
-    "pct": ("Segoe UI Black", 14),
-    "brand": ("Segoe UI Black", 13),
+    "btn": (_UI_SEMI, 11),
+    "pct": (_UI_BOLD, 14),
+    "brand": (_UI_BOLD, 13),
 }
 
 
-def font_or_fallback(preferred: tuple, fallback_family: str = "Segoe UI") -> tuple:
-    """Devuelve la fuente preferida; si falla, misma talla con fallback."""
+def font_or_fallback(preferred: tuple, fallback_family: str | None = None) -> tuple:
+    """Devuelve la fuente preferida; si falla, misma talla con fallback Mac/Windows."""
+    fb = fallback_family or _UI_FAMILY or "Segoe UI"
     try:
         family, size = preferred[0], preferred[1]
         extra = preferred[2:] if len(preferred) > 2 else ()
-        # Validación ligera: tk acepta nombres aunque no existan y sustituye
         return (family, size, *extra) if extra else (family, size)
     except Exception:
-        return (fallback_family, 10)
+        return (fb, 10)
 
 
 class RoundedGradientProgress(tk.Canvas):
